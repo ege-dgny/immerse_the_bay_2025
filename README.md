@@ -21,6 +21,3 @@ Now do:
 
 1) unzip the Afference Quick Look VR
 2) install the prerequesites - you can do so by opening the unzipped project.
-
-
-
