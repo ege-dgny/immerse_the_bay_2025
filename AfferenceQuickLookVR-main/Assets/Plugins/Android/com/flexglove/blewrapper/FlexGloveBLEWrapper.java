@@ -25,7 +25,7 @@ import java.util.UUID;
 
 public class FlexGloveBLEWrapper {
     private static final String TAG = "FlexGloveBLE";
-    private static BluetoothGatt gatt;
+    private BluetoothGatt gatt; // Instance variable - each wrapper instance has its own GATT
     
     // UUIDs matching ESP32 code (must match ESP32_FlexGlove_BLE_Debug.ino)
     private static final String SERVICE_UUID_STR = "a7f3c9e1-4b2d-8f6a-1c3e-9d5b7a2f4e8c";
@@ -175,13 +175,13 @@ public class FlexGloveBLEWrapper {
                         // Enable notifications
                         Log.d(TAG, "Enabling notifications for characteristic: " + CHARACTERISTIC_UUID);
                         boolean notifyResult = gatt.setCharacteristicNotification(dataCharacteristic, true);
-                        Log.d(TAG, "setCharacteristicNotification result: " + notifyResult);
+                        // Log.d(TAG, "setCharacteristicNotification result: " + notifyResult); // COMMENTED: Verbose state detail
                         
                         BluetoothGattDescriptor descriptor = dataCharacteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG);
                         if (descriptor != null) {
                             descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                             boolean writeResult = gatt.writeDescriptor(descriptor);
-                            Log.d(TAG, "writeDescriptor (enable notifications) result: " + writeResult);
+                            // Log.d(TAG, "writeDescriptor (enable notifications) result: " + writeResult); // COMMENTED: Verbose state detail
                         } else {
                             Log.e(TAG, "CLIENT_CHARACTERISTIC_CONFIG descriptor not found!");
                         }
@@ -210,15 +210,14 @@ public class FlexGloveBLEWrapper {
             if (characteristic.getUuid().equals(CHARACTERISTIC_UUID)) {
                 byte[] data = characteristic.getValue();
                 if (data != null && data.length > 0) {
-                    String text = new String(data);
-                    Log.d(TAG, "onCharacteristicChanged: received " + data.length + " bytes: " + text);
+                    // Log.d(TAG, "onCharacteristicChanged: received " + data.length + " bytes: " + text); // COMMENTED: Too noisy - receiving data constantly
                     if (rxListener != null) {
                         rxListener.onRx(data);
                     } else {
                         Log.w(TAG, "onCharacteristicChanged: rxListener is null!");
                     }
                 } else {
-                    Log.w(TAG, "onCharacteristicChanged: data is null or empty");
+                    // Log.w(TAG, "onCharacteristicChanged: data is null or empty"); // COMMENTED: Too noisy
                 }
             } else {
                 Log.w(TAG, "onCharacteristicChanged: UUID mismatch. Got: " + characteristic.getUuid() + ", expected: " + CHARACTERISTIC_UUID);
@@ -246,15 +245,21 @@ public class FlexGloveBLEWrapper {
         }
     }
     
-    public static void hardCloseGatt() {
+    /**
+     * Instance-based hard close - only closes THIS wrapper's GATT connection
+     * This allows multiple BLE devices to be connected concurrently
+     */
+    public void hardCloseGatt() {
         if (gatt != null) {
             try {
+                Log.d(TAG, "Hard closing GATT for this FlexGlove instance");
                 gatt.disconnect();
                 gatt.close();
             } catch (Exception e) {
                 Log.e(TAG, "Error in hardCloseGatt: " + e.getMessage());
             }
             gatt = null;
+            isConnected = false;
         }
     }
     
@@ -349,7 +354,7 @@ public class FlexGloveBLEWrapper {
             // Avoid duplicates
             if (!scannedDevices.contains(deviceInfo)) {
                 scannedDevices.add(deviceInfo);
-                Log.d(TAG, "Found device: " + deviceInfo);
+                // Log.d(TAG, "Found device: " + deviceInfo); // COMMENTED: Too noisy during device scan
             }
         }
         

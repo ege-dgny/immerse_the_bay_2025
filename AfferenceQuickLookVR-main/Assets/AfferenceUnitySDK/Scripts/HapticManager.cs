@@ -195,10 +195,14 @@ public async Task WaitForAndroidFocusAndStabilityAsync(int postFocusDelayMs = 30
                     await Task.Delay(600);
                 }
 
+                Debug.Log("[HapticManager] Creating AfferenceRing object...");
                 var ring = new AfferenceRing(transport, currentUser, digit: 2);
+                Debug.Log("[HapticManager] AfferenceRing created, calling CreateSession...");
                 CreateSession(currentUser, ring);
+                Debug.Log("[HapticManager] CreateSession completed successfully");
 
                 status = "Connected!";
+                Debug.Log("[HapticManager] Connection successful, returning true");
                 return true;
             }
             catch (OperationCanceledException)
@@ -425,6 +429,7 @@ public async Task WaitForAndroidFocusAndStabilityAsync(int postFocusDelayMs = 30
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         AfferenceAndroidBridge.HardCloseGatt();
+        Debug.Log("[FlexGloveBridge] HardCloseGatt: done.");
 #endif
     }
 

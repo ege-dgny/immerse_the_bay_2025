@@ -99,8 +99,8 @@ public sealed class FlexGloveAndroidBridge
             {
                 if (data != null && data.Length > 0)
                 {
-                    string text = System.Text.Encoding.ASCII.GetString(data);
-                    Debug.Log($"[FlexGloveBridge] RxProxy received {data.Length} bytes: {text}");
+                    // string text = System.Text.Encoding.ASCII.GetString(data);
+                    // Debug.Log($"[FlexGloveBridge] RxProxy received {data.Length} bytes: {text}"); // COMMENTED: Too noisy - receiving data constantly
                     // Append to buffer
                     int oldLen = _rxBuffer.Length;
                     Array.Resize(ref _rxBuffer, oldLen + data.Length);
@@ -210,17 +210,25 @@ public sealed class FlexGloveAndroidBridge
 #endif
     }
 
-    public static void HardCloseGatt()
+    /// <summary>
+    /// Instance-based hard close - only closes THIS bridge's GATT connection
+    /// This allows multiple BLE devices to be connected concurrently
+    /// </summary>
+    public void HardCloseGatt()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
         try
         {
             AndroidJNI.AttachCurrentThread();
 
-            using (var cls = new AndroidJavaClass(WRAPPER_CLS))
+            if (_wrapper != null)
             {
-                cls.CallStatic("hardCloseGatt");
-                Debug.Log("[FlexGloveBridge] HardCloseGatt: done.");
+                _wrapper.Call("hardCloseGatt");
+                Debug.Log("[FlexGloveBridge] HardCloseGatt: closed this instance's GATT.");
+            }
+            else
+            {
+                Debug.Log("[FlexGloveBridge] HardCloseGatt: no wrapper instance.");
             }
         }
         catch (Exception e)

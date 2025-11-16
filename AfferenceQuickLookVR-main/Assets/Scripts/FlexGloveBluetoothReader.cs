@@ -166,7 +166,7 @@ public class FlexGloveBluetoothReader : MonoBehaviour
 
         // Convert bytes to string
         string text = Encoding.ASCII.GetString(data);
-        Debug.Log($"[FlexGloveBLE] Received data ({data.Length} bytes): {text}");
+        // Debug.Log($"[FlexGloveBLE] Received data ({data.Length} bytes): {text}"); // COMMENTED: Too noisy - receiving data constantly
         dataBuffer.Append(text);
 
         string buffer = dataBuffer.ToString();
@@ -211,7 +211,7 @@ public class FlexGloveBluetoothReader : MonoBehaviour
                 {
                     // Parsing failed even though we have all markers - might be malformed
                     // Clear buffer to prevent infinite accumulation
-                    Debug.LogWarning($"[FlexGloveBLE] Failed to parse complete message, clearing buffer: {trimmed}");
+                    // Debug.LogWarning($"[FlexGloveBLE] Failed to parse complete message, clearing buffer: {trimmed}"); // COMMENTED: Too noisy - parsing errors happen frequently
                     buffer = "";
                 }
             }
@@ -230,7 +230,7 @@ public class FlexGloveBluetoothReader : MonoBehaviour
             // But limit buffer size to prevent memory issues (max ~200 chars should be enough)
             if (buffer.Length > 200)
             {
-                Debug.LogWarning($"[FlexGloveBLE] Buffer too large ({buffer.Length} chars), clearing: {buffer.Substring(0, 50)}...");
+                // Debug.LogWarning($"[FlexGloveBLE] Buffer too large ({buffer.Length} chars), clearing: {buffer.Substring(0, 50)}..."); // COMMENTED: Too noisy
                 buffer = "";
             }
         }
@@ -354,7 +354,7 @@ public class FlexGloveBluetoothReader : MonoBehaviour
                     }
                     
                     lastDataTime = Time.time;
-                    Debug.Log($"[FlexGloveBLE] Parsed flex values - T:{thumb} I:{index} M:{middle} R:{ring} P:{pinky} Th:{temperature}");
+                    // Debug.Log($"[FlexGloveBLE] Parsed flex values - T:{thumb} I:{index} M:{middle} R:{ring} P:{pinky} Th:{temperature}"); // COMMENTED: Too noisy - parsing values constantly
                     return true;
                 }
             }

@@ -49,6 +49,28 @@ public class FlexGloveUIDisplay : MonoBehaviour
     [Tooltip("Update rate in seconds (0 = every frame)")]
     public float updateInterval = 0.1f;
 
+    [Header("Thermistor Settings")]
+    [Tooltip("Enable temperature conversion to Celsius")]
+    public bool convertTemperatureToCelsius = true;
+
+    [Tooltip("ADC resolution (e.g., 4096 for 12-bit, 65536 for 16-bit). Set to 0 if reading is already resistance in ohms.")]
+    public int adcResolution = 65536;
+
+    [Tooltip("Fixed resistor value in ohms (10kΩ = 10000)")]
+    public float fixedResistorOhms = 10000f;
+
+    [Tooltip("Thermistor Beta value (typical 10kΩ NTC thermistor: 3950K). Calibrated: 3950K")]
+    public float thermistorBeta = 3950f;
+
+    [Tooltip("Reference temperature in Celsius (typically 25°C). Calibrated: 25°C")]
+    public float referenceTempCelsius = 25f;
+
+    [Tooltip("Thermistor resistance at reference temperature in ohms (10kΩ thermistor at 25°C = 10000). Calibrated: 10000Ω")]
+    public float referenceResistanceOhms = 10000f;
+
+    [Tooltip("Temperature calibration offset in Celsius. Adjust this to match actual temperature. Example: If showing -1.1°C but actual is 23°C, set offset to 24.1")]
+    public float temperatureOffsetCelsius = 24.1f;
+
     [Header("Cube Scaling Settings")]
     [Tooltip("Sensor value when cube should be flat (default: 4095)")]
     public int flatValue = 4095;
@@ -133,6 +155,104 @@ public class FlexGloveUIDisplay : MonoBehaviour
     }
 
     /// <summary>
+    /// Get the current converted temperature in Celsius
+    /// </summary>
+    /// <returns>Temperature in Celsius, or 0 if conversion is disabled or wrapper is null</returns>
+    public float GetCurrentTemperatureCelsius()
+    {
+        if (bleWrapper == null) return 0f;
+        
+        if (convertTemperatureToCelsius)
+        {
+            return ConvertThermistorToCelsius(bleWrapper.temperature);
+        }
+        else
+        {
+            return bleWrapper.temperature; // Return raw value if conversion disabled
+        }
+    }
+
+    /// <summary>
+    /// Convert thermistor ADC reading to Celsius temperature
+    /// Uses Beta equation: 1/T = 1/T0 + (1/Beta) * ln(R/R0)
+    /// 
+    /// Calibration values:
+    /// - R0 = 10000 ohm (reference resistor at 25°C)
+    /// - T0 = 25°C = 298.15K
+    /// - Beta = 3950K
+    /// - Example: R = 12966 ohm at room temp (12750 ADC reading)
+    /// </summary>
+    /// <param name="adcReading">Raw ADC reading from thermistor</param>
+    /// <returns>Temperature in Celsius</returns>
+    public float ConvertThermistorToCelsius(int adcReading)
+    {
+        float thermistorResistance;
+
+        if (adcResolution > 0)
+        {
+            // Convert ADC reading to resistance using voltage divider formula
+            // Voltage divider: Vout = Vref * R_fixed / (R_thermistor + R_fixed)
+            // ADC_reading = (Vout / Vref) * ADC_resolution
+            // Solving for R_thermistor:
+            // R_thermistor = R_fixed * (1 - voltageRatio) / voltageRatio
+            float voltageRatio = (float)adcReading / adcResolution;
+            
+            // Handle edge cases
+            if (voltageRatio >= 0.999f) return -100f; // Too high, likely open circuit
+            if (voltageRatio <= 0.001f) return 200f;   // Too low, likely short circuit
+            
+            // Calculate thermistor resistance from voltage divider
+            thermistorResistance = fixedResistorOhms * (1f - voltageRatio) / voltageRatio;
+        }
+        else
+        {
+            // Reading is already resistance in ohms
+            thermistorResistance = adcReading;
+        }
+
+        // Convert resistance to temperature using Beta equation
+        // Beta equation: 1/T = 1/T0 + (1/Beta) * ln(R/R0)
+        // Solving for T: T = 1 / (1/T0 + (1/Beta) * ln(R/R0))
+        // Where:
+        // - T0 = reference temperature in Kelvin (25°C = 298.15K)
+        // - R0 = reference resistance at T0 (10000 ohm)
+        // - Beta = thermistor Beta value (3950K)
+        // - R = current thermistor resistance
+        
+        float t0Kelvin = referenceTempCelsius + 273.15f; // Convert reference temp to Kelvin
+        float lnRatio = Mathf.Log(thermistorResistance / referenceResistanceOhms);
+        float invT = (1f / t0Kelvin) + (1f / thermistorBeta) * lnRatio;
+        float tempKelvin = 1f / invT;
+        float tempCelsius = tempKelvin - 273.15f;
+
+        // Apply calibration offset
+        tempCelsius += temperatureOffsetCelsius;
+
+        return tempCelsius;
+    }
+
+    /// <summary>
+    /// Get the finger state based on sensor value
+    /// </summary>
+    /// <param name="sensorValue">Current sensor reading (0-4095)</param>
+    /// <returns>Tuple containing state name and color</returns>
+    private (string state, Color color) GetFingerState(int sensorValue)
+    {
+        if (sensorValue >= 500 && sensorValue <= 4095)
+        {
+            return ("Relaxed", Color.green);
+        }
+        else if (sensorValue >= 150 && sensorValue <= 499)
+        {
+            return ("Contracted", new Color(1f, 0.647f, 0f)); // Orange color
+        }
+        else // 0-149
+        {
+            return ("Overstressed", Color.red);
+        }
+    }
+
+    /// <summary>
     /// Calculate the Y scale for a cube based on sensor value
     /// Inverse relationship: lower sensor value = taller cube
     /// </summary>
@@ -178,8 +298,59 @@ public class FlexGloveUIDisplay : MonoBehaviour
 
         lastUpdateTime = Time.time;
 
+        // Update text displays with state-based information
+        if (thumbText != null)
+        {
+            var (state, color) = GetFingerState(thumbVal);
+            thumbText.text = $"{fingerLabels[0]}: {state}";
+            thumbText.color = color;
+        }
+
+        if (indexText != null)
+        {
+            var (state, color) = GetFingerState(indexVal);
+            indexText.text = $"{fingerLabels[1]}: {state}";
+            indexText.color = color;
+        }
+
+        if (middleText != null)
+        {
+            var (state, color) = GetFingerState(middleVal);
+            middleText.text = $"{fingerLabels[2]}: {state}";
+            middleText.color = color;
+        }
+
+        if (ringText != null)
+        {
+            var (state, color) = GetFingerState(ringVal);
+            ringText.text = $"{fingerLabels[3]}: {state}";
+            ringText.color = color;
+        }
+
+        if (pinkyText != null)
+        {
+            var (state, color) = GetFingerState(pinkyVal);
+            pinkyText.text = $"{fingerLabels[4]}: {state}";
+            pinkyText.color = color;
+        }
+
+        if (temperatureText != null)
+        {
+            if (convertTemperatureToCelsius)
+            {
+                float tempCelsius = ConvertThermistorToCelsius(temperatureVal);
+                temperatureText.text = $"Temperature: {tempCelsius:F1}°C";
+            }
+            else
+            {
+                temperatureText.text = $"Temperature: {temperatureVal}";
+            }
+        }
+
         // Scale cubes based on sensor values (inverse: lower value = taller cube)
         // Works with either direct cube assignment or parent-child structure
+        // DISABLED: Comment out cube scaling to use text display only
+        /*
         if (thumbCube != null)
         {
             Transform cubeToScale = thumbCube.childCount > 0 ? thumbCube.GetChild(0) : thumbCube;
@@ -224,10 +395,7 @@ public class FlexGloveUIDisplay : MonoBehaviour
             scale.y = yScale;
             cubeToScale.localScale = scale;
         }
-
-        // Update temperature display (still using text)
-        if (temperatureText != null)
-            temperatureText.text = $"Temperature: {temperatureVal}";
+        */
     }
 }
 

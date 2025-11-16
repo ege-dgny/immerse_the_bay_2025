@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Events;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -50,6 +51,10 @@ public class FlexGloveBLEWrapper : MonoBehaviour
     [Header("Temperature")]
     [Tooltip("Current temperature reading (raw value, not normalized)")]
     public int temperature;
+
+    [Header("Events")]
+    [Tooltip("Invoked when device connection completes. Parameter: true = success, false = failed")]
+    public UnityEvent<bool> onDeviceConnected;
 
     public bool IsConnected { get; private set; }
 
@@ -329,6 +334,9 @@ public class FlexGloveBLEWrapper : MonoBehaviour
         {
             Debug.LogError($"[FlexGloveBLEWrapper] Connection to {deviceName} failed or timed out");
         }
+        
+        // Invoke event with connection result (true = success, false = failed)
+        onDeviceConnected?.Invoke(connected);
         
         onComplete?.Invoke(connected);
     }

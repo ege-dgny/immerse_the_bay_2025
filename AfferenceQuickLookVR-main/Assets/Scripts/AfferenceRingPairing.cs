@@ -7,18 +7,26 @@ public class AfferenceRingPairing : MonoBehaviour
     [Header("Ring Configuration")]
     [SerializeField] private string deviceId = "6f28";
     [SerializeField] private string userName = "ExampleUser";
-    
+
     [Header("Buzz Settings")]
     [SerializeField] private float buzzInterval = 1.0f; // seconds between buzzes
     [SerializeField] private float buzzIntensity = 0.5f; // haptic intensity (0-1)
     [SerializeField] private float buzzDuration = 0.1f; // seconds each buzz lasts
-    
+
     [Header("Auto Start")]
     [SerializeField] private bool autoStartOnEnable = true;
-    
+
     private bool isConnected = false;
     private Coroutine buzzCoroutine;
-    
+
+
+    public void StartPairingProcess(bool isFlexGloveConnected)
+    {
+        if (isFlexGloveConnected)
+        {
+            StartCoroutine(InitializeAndConnect());
+        }
+    }
     private void OnEnable()
     {
         if (autoStartOnEnable)
@@ -26,12 +34,12 @@ public class AfferenceRingPairing : MonoBehaviour
             StartCoroutine(InitializeAndConnect());
         }
     }
-    
+
     private void OnDisable()
     {
         StopBuzz();
     }
-    
+
     /// <summary>
     /// Initialize and connect to the Afference ring
     /// </summary>
@@ -42,26 +50,27 @@ public class AfferenceRingPairing : MonoBehaviour
             Debug.LogError("HapticManager.Instance is null! Make sure HapticManager exists in the scene.");
             yield break;
         }
-        
+
         Debug.Log("Starting Afference Ring pairing...");
-        
+
         // Step 1: Set device ID
         HapticManager.Instance.SetDevice(deviceId);
         Debug.Log($"Device set to: {deviceId}");
-        
+
         // Step 2: Set communication type to BLE
         HapticManager.Instance.SetCommType("ble");
         Debug.Log("Communication type set to BLE");
-        
+
         // Step 3: Load user (ExampleUser.json should be copied from StreamingAssets)
         HapticManager.Instance.LoadUser(userName);
         Debug.Log($"User loaded: {userName}");
-        
+
         // Step 4: Wait a frame for user to load
         yield return null;
-        
+
 #if UNITY_ANDROID && !UNITY_EDITOR
         // Step 5: Request BLE permissions (Android only)
+        Debug.Log("[AfferenceRingPairing] Starting Android-specific initialization...");
         Debug.Log("Requesting BLE permissions...");
         Task<bool> permissionTask = HapticManager.Instance.EnsureBlePermissionsAsync();
         yield return new WaitUntil(() => permissionTask.IsCompleted);
@@ -77,30 +86,80 @@ public class AfferenceRingPairing : MonoBehaviour
         // Step 6: Wait for Android focus stability
         Task focusTask = HapticManager.Instance.WaitForAndroidFocusAndStabilityAsync();
         yield return new WaitUntil(() => focusTask.IsCompleted);
-#endif
         
+        // Step 6.5: Wait for FlexGlove to finish initializing (allows BLE stack to stabilize)
+        // NOTE: With instance-based GATT connections, both devices can connect concurrently
+        // This wait is mainly to ensure BLE stack is ready, not to prevent conflicts
+        Debug.Log("Waiting for FlexGlove to finish initializing...");
+        float waitTimeout = 30f; // Max 30 seconds wait
+        float elapsed = 0f;
+        
+        while (elapsed < waitTimeout)
+        {
+            var flexGlove = FindObjectOfType<FlexGloveBLEWrapper>();
+            if (flexGlove == null)
+            {
+                // FlexGlove not in scene, proceed immediately
+                Debug.Log("FlexGlove not found in scene, proceeding with Afference connection");
+                break;
+            }
+            
+            // Log current status for debugging
+            string status = flexGlove.connectionStatus ?? "Unknown";
+            Debug.Log($"[AfferenceRingPairing] FlexGlove status: {status}, IsConnected: {flexGlove.IsConnected}, elapsed: {elapsed:F1}s");
+            
+            // Check if FlexGlove is done initializing (connected or failed)
+            if (flexGlove.IsConnected || 
+                status.Contains("Connected") ||
+                status.Contains("failed") ||
+                status.Contains("Failed") ||
+                status.Contains("No devices found") ||
+                status.Contains("not found"))
+            {
+                Debug.Log($"FlexGlove initialization complete (status: {status}), proceeding with Afference");
+                break;
+            }
+            
+            yield return new WaitForSeconds(0.2f);
+            elapsed += 0.2f;
+        }
+        
+        if (elapsed >= waitTimeout)
+        {
+            Debug.LogWarning($"Timeout waiting for FlexGlove after {elapsed}s, proceeding anyway");
+        }
+        
+        // Small delay to let BLE stack settle before connecting second device
+        yield return new WaitForSeconds(0.5f);
+#endif
+
         // Step 7: Connect to the ring
         Debug.Log("Connecting to ring...");
         Task<bool> connectTask = HapticManager.Instance.ConnectCurrentUserAsync();
         yield return new WaitUntil(() => connectTask.IsCompleted);
-        
+
         if (!connectTask.Result)
         {
             Debug.LogError($"Failed to connect: {HapticManager.Instance.status}");
+            Debug.LogError($"Connection task completed with result: {connectTask.Result}");
+            if (connectTask.Exception != null)
+            {
+                Debug.LogError($"Connection task exception: {connectTask.Exception}");
+            }
             yield break;
         }
-        
+
         Debug.Log("Successfully connected to Afference Ring!");
         isConnected = true;
-        
+
         // Step 8: Start stimulation
         HapticManager.Instance.ToggleStim();
         Debug.Log("Stimulation started");
-        
+
         // Step 9: Start periodic buzzing
         StartBuzz();
     }
-    
+
     /// <summary>
     /// Start periodic buzzing
     /// </summary>
@@ -111,16 +170,16 @@ public class AfferenceRingPairing : MonoBehaviour
             Debug.LogWarning("Ring not connected. Cannot start buzz.");
             return;
         }
-        
+
         if (buzzCoroutine != null)
         {
             StopCoroutine(buzzCoroutine);
         }
-        
+
         buzzCoroutine = StartCoroutine(BuzzCoroutine());
         Debug.Log($"Started periodic buzz (interval: {buzzInterval}s, intensity: {buzzIntensity})");
     }
-    
+
     /// <summary>
     /// Stop periodic buzzing
     /// </summary>
@@ -131,14 +190,14 @@ public class AfferenceRingPairing : MonoBehaviour
             StopCoroutine(buzzCoroutine);
             buzzCoroutine = null;
         }
-        
+
         // Send zero to stop any ongoing haptic
         if (HapticManager.Instance != null && HapticManager.Instance.stimActive)
         {
             HapticManager.Instance.SendHaptic(0f);
         }
     }
-    
+
     /// <summary>
     /// Coroutine that sends periodic buzzes
     /// </summary>
@@ -149,13 +208,13 @@ public class AfferenceRingPairing : MonoBehaviour
             // Send buzz
             HapticManager.Instance.SendHaptic(buzzIntensity);
             yield return new WaitForSeconds(buzzDuration);
-            
+
             // Stop buzz
             HapticManager.Instance.SendHaptic(0f);
             yield return new WaitForSeconds(buzzInterval - buzzDuration);
         }
     }
-    
+
     /// <summary>
     /// Manually trigger a single buzz
     /// </summary>
@@ -166,10 +225,10 @@ public class AfferenceRingPairing : MonoBehaviour
             Debug.LogWarning("Cannot trigger buzz: ring not connected or stimulation not active");
             return;
         }
-        
+
         StartCoroutine(SingleBuzz());
     }
-    
+
     private IEnumerator SingleBuzz()
     {
         HapticManager.Instance.SendHaptic(buzzIntensity);

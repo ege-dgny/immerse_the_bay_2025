@@ -47,8 +47,10 @@ public sealed class AfferenceAndroidBridge
     public bool OpenBlocking(string path, int timeoutMs = 0)
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
-        HardCloseGatt();
-
+        // NOTE: Removed HardCloseGatt() call here to allow concurrent BLE connections
+        // Each bridge instance manages its own GATT connection independently
+        // Only close existing Afference ring connection if reopening the same instance
+        
         if (!Init()) return false;
 
         using var evt = new ManualResetEventSlim(false);
@@ -94,7 +96,9 @@ public sealed class AfferenceAndroidBridge
     finally
     {
         _handle = 0;
-        // Ensure no lingering static GATT even if wrapper.close() failed
+        // NOTE: HardCloseGatt() includes a safety check to skip if FlexGlove is connected
+        // This prevents any potential interference with FlexGlove's instance-based GATT connection
+        // Even though they're different Java classes, we're being extra cautious
         try { HardCloseGatt(); } catch { }
     }
 #endif
@@ -182,11 +186,26 @@ public sealed class AfferenceAndroidBridge
 #endif
     }
 
+    /// <summary>
+    /// Hard close Afference ring's GATT connection
+    /// NOTE: This uses a static GATT reference from AfferenceRingWrapper (Java AAR)
+    /// Safety check: Verifies FlexGlove is not connected before closing to prevent interference
+    /// For true concurrent support, AfferenceRingWrapper Java code should be updated to use instance-based GATT
+    /// </summary>
     public static void HardCloseGatt()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
     try
     {
+        // Safety check: Don't close if FlexGlove is connected (to prevent interference)
+        // Even though they're different Java classes, we want to be extra safe
+        var flexGloveWrapper = UnityEngine.Object.FindFirstObjectByType<FlexGloveBLEWrapper>();
+        if (flexGloveWrapper != null && flexGloveWrapper.IsConnected)
+        {
+            Debug.LogWarning("[Bridge] HardCloseGatt: Skipping - FlexGlove is connected. This prevents potential interference.");
+            return;
+        }
+
         AndroidJNI.AttachCurrentThread();
 
         using (var cls = new AndroidJavaClass(WRAPPER_CLS))
@@ -194,15 +213,16 @@ public sealed class AfferenceAndroidBridge
             var gatt = cls.GetStatic<AndroidJavaObject>("gatt");
             if (gatt == null)
             {
-                Debug.Log("[Bridge] HardCloseGatt: no gatt.");
+                Debug.Log("[Bridge] HardCloseGatt: no Afference ring GATT to close.");
                 return;
             }
 
+            Debug.Log("[Bridge] HardCloseGatt: closing Afference ring GATT only (FlexGlove uses separate instance)");
             try { gatt.Call("disconnect"); } catch { }
             try { gatt.Call("close"); } catch { }
             try { cls.SetStatic<AndroidJavaObject>("gatt", null); } catch { }
 
-            Debug.Log("[Bridge] HardCloseGatt: done.");
+            Debug.Log("[Bridge] HardCloseGatt: Afference ring GATT closed.");
         }
     }
     catch (Exception e)
